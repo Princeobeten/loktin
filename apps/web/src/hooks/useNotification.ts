@@ -2,7 +2,7 @@ import { use } from "react";
 import {
   NotificationContext,
   NotificationContextType,
-} from "../providers/NotificationProvider";
+} from "../providers/Notification";
 
 export const useNotification = (): NotificationContextType => {
   const context = use(NotificationContext);

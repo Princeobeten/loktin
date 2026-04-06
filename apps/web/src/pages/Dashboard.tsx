@@ -1,11 +1,22 @@
 import { useState, useEffect } from "react";
 import { useWallet } from "../hooks/useWallet";
+import { useToast } from "../hooks/useToast";
+import { useWalletBalance } from "../hooks/useWalletBalance";
 import * as LockedInContract from "lockedin";
 import type { BillCategory } from "lockedin";
 import { rpcUrl } from "../contracts/util";
+import ConfirmModal from "../components/ConfirmModal";
+import { CycleCardSkeleton } from "../components/SkeletonLoader";
+import Spinner from "../components/Spinner";
+import SaveTemplateModal from "../components/SaveTemplateModal";
+import TemplateManager from "../components/TemplateManager";
+import type { BillTemplate } from "../util/templates";
+import { createTemplateFromCycleBills, getTemplate } from "../util/templates";
 
 export default function Dashboard() {
   const { address, signTransaction } = useWallet();
+  const toast = useToast();
+  const { usdc } = useWalletBalance();
   const [cycles, setCycles] = useState<bigint[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<"cycles" | "create">("cycles");
@@ -18,8 +29,28 @@ export default function Dashboard() {
     if (address) {
       loadCycles();
       checkBillsDueSoon();
+      checkPendingTemplate();
     }
   }, [address]);
+
+  // Check if there's a pending template to load
+  const checkPendingTemplate = () => {
+    const pendingTemplateId = localStorage.getItem('lockedin_pending_template');
+    if (pendingTemplateId) {
+      const template = getTemplate(pendingTemplateId);
+      if (template) {
+        loadTemplateIntoCycleForm(template);
+        setActiveSection('create');
+      }
+      localStorage.removeItem('lockedin_pending_template');
+    }
+  };
+
+  // This will be implemented after we find where bills state is
+  const loadTemplateIntoCycleForm = (template: BillTemplate) => {
+    // We'll implement this after finding the bills state
+    console.log('Loading template into form:', template);
+  };
 
   // Check for bills due within 24 hours
   const checkBillsDueSoon = async () => {
@@ -52,7 +83,9 @@ export default function Dashboard() {
           const billSim = await billTx.simulate();
           const billData = (billSim.result as any)?.value || billSim.result;
 
-          const dueDate = Number(billData.due_date);
+          // Use actual due date for recurring bills (considers skip/payment state)
+          const actualDueDate = getActualDueDate(billData);
+          const dueDate = Math.floor(actualDueDate.getTime() / 1000);
           const timeUntilDue = dueDate - now;
 
           if (timeUntilDue > 0 && timeUntilDue <= secondsAhead && !billData.is_paid) {
@@ -126,10 +159,10 @@ export default function Dashboard() {
       await loadCycles();
       setActiveSection("cycles");
       setDepositAmount("");
-      alert(`Successfully created cycle #${cycleId}!`);
+      toast.success(`Successfully created cycle #${cycleId}!`);
     } catch (error) {
       console.error("Error creating cycle:", error);
-      alert(`Failed to create cycle: ${error instanceof Error ? error.message : String(error)}`);
+      toast.error(`Failed to create cycle: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -283,15 +316,9 @@ export default function Dashboard() {
       {activeSection === "cycles" && (
         <div>
           {loading ? (
-            <div style={{
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '48px',
-              textAlign: 'center',
-              color: 'var(--color-text-secondary)'
-            }}>
-              Loading cycles...
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <CycleCardSkeleton />
+              <CycleCardSkeleton />
             </div>
           ) : cycles.length === 0 ? (
             <div style={{
@@ -414,6 +441,19 @@ export default function Dashboard() {
                 transition: 'var(--transition-base)'
               }}
             />
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginTop: '8px',
+              padding: '8px 12px',
+              backgroundColor: 'var(--color-bg-secondary)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '13px'
+            }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Available USDC:</span>
+              <span style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{usdc} USDC</span>
+            </div>
             <small style={{ color: 'var(--color-text-tertiary)', marginTop: '6px', display: 'block', fontSize: '13px' }}>
               Amount to lock for bill payments (2% fee will be deducted)
             </small>
@@ -475,7 +515,7 @@ export default function Dashboard() {
                 boxShadow: loading || !depositAmount || parseFloat(depositAmount) <= 0 ? 'none' : 'var(--shadow-glow)'
               }}
             >
-              <span>🔒</span>
+              {loading ? <Spinner size={16} color="#0f1419" /> : <span>🔒</span>}
               {loading ? 'Creating...' : 'Lock Funds & Create Cycle'}
             </button>
             <button
@@ -522,8 +562,34 @@ function getDaySuffix(day: number): string {
   }
 }
 
+// Calculate the actual next due date for a recurring bill
+// The contract updates due_date after payment, but NOT after skip
+// When skipped, it updates last_paid_date instead, so we need to calculate the next due date
+function getActualDueDate(bill: any): Date {
+  const dueDate = new Date(Number(bill.due_date) * 1000);
+
+  // For recurring bills, check if they were skipped
+  if (bill.is_recurring && bill.last_paid_date) {
+    const lastPaidDate = new Date(Number(bill.last_paid_date) * 1000);
+    const now = new Date();
+
+    // If last_paid_date is in the future (which happens when skipped),
+    // that means the bill was skipped to a future month
+    if (lastPaidDate > now) {
+      // Calculate the next due date: same day of month as original due date,
+      // but in the month AFTER the skip date
+      const dayOfMonth = dueDate.getDate();
+      const nextDue = new Date(lastPaidDate.getFullYear(), lastPaidDate.getMonth() + 1, dayOfMonth);
+      return nextDue;
+    }
+  }
+
+  return dueDate;
+}
+
 function CycleCard({ cycleId }: { cycleId: bigint }) {
   const { address, signTransaction } = useWallet();
+  const toast = useToast();
   const [cycleData, setCycleData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAddBills, setShowAddBills] = useState(false);
@@ -532,9 +598,27 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
   const [cycleBills, setCycleBills] = useState<any[]>([]);
   const [selectedBill, setSelectedBill] = useState<any>(null);
   const [showBillDetails, setShowBillDetails] = useState(false);
+  const [processingBillId, setProcessingBillId] = useState<bigint | null>(null);
+  const [submittingBills, setSubmittingBills] = useState(false);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmButtonStyle?: 'primary' | 'danger';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    confirmButtonStyle: 'primary'
+  });
 
   useEffect(() => {
     loadCycleData();
+    loadCycleBills();
   }, [cycleId]);
 
   const loadCycleData = async () => {
@@ -619,110 +703,156 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
   const handleSkipBill = async (billId: bigint) => {
     if (!address || !signTransaction) return;
 
-    const confirmMessage = `Skip the next occurrence of this recurring bill?\n\n` +
-      `The bill will remain in your cycle but the next payment will be skipped.\n` +
-      `Note: You can only make one adjustment per month.`;
+    const confirmMessage = `The bill will remain in your cycle but the next payment will be skipped.\n\nNote: You can only make one adjustment per month.`;
 
-    const confirmSkip = window.confirm(confirmMessage);
-    if (!confirmSkip) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Skip Next Occurrence?',
+      message: confirmMessage,
+      confirmButtonStyle: 'primary',
+      onConfirm: async () => {
+        setConfirmModal({ ...confirmModal, isOpen: false });
+        setProcessingBillId(billId);
 
-    try {
-      const contract = new LockedInContract.Client({
-        ...LockedInContract.networks.testnet,
-        rpcUrl,
-        publicKey: address,
-      });
-
-      const tx = await contract.skip_bill({ bill_id: billId });
-
-      await tx.signAndSend({
-        signTransaction: async (xdr: string) => {
-          return await signTransaction(xdr, {
-            networkPassphrase: "Test SDF Network ; September 2015",
+        try {
+          const contract = new LockedInContract.Client({
+            ...LockedInContract.networks.testnet,
+            rpcUrl,
+            publicKey: address,
           });
-        },
-      });
 
-      alert("Successfully skipped next occurrence! The bill will still recur in future months.");
-      setShowBillDetails(false);
-      setSelectedBill(null);
-      await loadCycleBills();
-      await loadCycleData();
-    } catch (error: any) {
-      console.error("Error skipping bill:", error);
+          const tx = await contract.skip_bill({ bill_id: billId });
 
-      let errorMsg = "Failed to skip bill";
-      if (error.message?.includes("MonthlyAdjustmentLimitReached")) {
-        errorMsg = "You have already made a bill adjustment this month. You can only add/cancel one bill per month.";
-      } else if (error.message) {
-        errorMsg = error.message;
+          await tx.signAndSend({
+            signTransaction: async (xdr: string) => {
+              return await signTransaction(xdr, {
+                networkPassphrase: "Test SDF Network ; September 2015",
+              });
+            },
+          });
+
+          toast.success("Successfully skipped next occurrence! The bill will still recur in future months.");
+          setShowBillDetails(false);
+          setSelectedBill(null);
+          await loadCycleBills();
+          await loadCycleData();
+        } catch (error: any) {
+          console.error("Error skipping bill:", error);
+
+          let errorMsg = "Failed to skip bill";
+          if (error.message?.includes("MonthlyAdjustmentLimitReached")) {
+            errorMsg = "You have already made a bill adjustment this month. You can only add/cancel one bill per month.";
+          } else if (error.message) {
+            errorMsg = error.message;
+          }
+
+          toast.error(errorMsg);
+        } finally {
+          setProcessingBillId(null);
+        }
       }
-
-      alert(errorMsg);
-    }
+    });
   };
 
   const handleDeleteBill = async (billId: bigint) => {
     if (!address || !signTransaction) return;
 
-    const confirmCancel = window.confirm(
-      `⚠️ DELETE BILL PERMANENTLY?\n\n` +
-      `This will completely remove this bill from your cycle.\n` +
-      `All future occurrences will be cancelled.\n\n` +
-      `This action cannot be undone!\n` +
-      `Note: You can only make one adjustment per month.`
-    );
+    const confirmMessage = `This will completely remove this bill from your cycle.\nAll future occurrences will be cancelled.\n\nThis action cannot be undone!\n\nNote: You can only make one adjustment per month.`;
 
-    if (!confirmCancel) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Bill Permanently?',
+      message: confirmMessage,
+      confirmButtonStyle: 'danger',
+      onConfirm: async () => {
+        setConfirmModal({ ...confirmModal, isOpen: false });
+        setProcessingBillId(billId);
+
+        try {
+          const contract = new LockedInContract.Client({
+            ...LockedInContract.networks.testnet,
+            rpcUrl,
+            publicKey: address,
+          });
+
+          const tx = await contract.delete_bill({ bill_id: billId });
+
+          await tx.signAndSend({
+            signTransaction: async (xdr: string) => {
+              return await signTransaction(xdr, {
+                networkPassphrase: "Test SDF Network ; September 2015",
+              });
+            },
+          });
+
+          toast.success("Bill permanently deleted!");
+          setShowBillDetails(false);
+          setSelectedBill(null);
+          await loadCycleBills();
+          await loadCycleData();
+        } catch (error: any) {
+          console.error("Error deleting bill:", error);
+
+          let errorMsg = "Failed to delete bill";
+          if (error.message?.includes("MonthlyAdjustmentLimitReached")) {
+            errorMsg = "You have already made a bill adjustment this month. You can only add/cancel one bill per month.";
+          } else if (error.message) {
+            errorMsg = error.message;
+          }
+
+          toast.error(errorMsg);
+        } finally {
+          setProcessingBillId(null);
+        }
+      }
+    });
+  };
+
+  const handleSaveTemplate = (name: string, description?: string) => {
+    if (!cycleBills || cycleBills.length === 0) {
+      toast.error('No bills to save as template. Add bills to this cycle first.');
+      return;
+    }
 
     try {
-      const contract = new LockedInContract.Client({
-        ...LockedInContract.networks.testnet,
-        rpcUrl,
-        publicKey: address,
-      });
-
-      const tx = await contract.delete_bill({ bill_id: billId });
-
-      await tx.signAndSend({
-        signTransaction: async (xdr: string) => {
-          return await signTransaction(xdr, {
-            networkPassphrase: "Test SDF Network ; September 2015",
-          });
-        },
-      });
-
-      alert("Bill permanently deleted!");
-      setShowBillDetails(false);
-      setSelectedBill(null);
-      await loadCycleBills();
-      await loadCycleData();
-    } catch (error: any) {
-      console.error("Error deleting bill:", error);
-
-      let errorMsg = "Failed to delete bill";
-      if (error.message?.includes("MonthlyAdjustmentLimitReached")) {
-        errorMsg = "You have already made a bill adjustment this month. You can only add/cancel one bill per month.";
-      } else if (error.message) {
-        errorMsg = error.message;
-      }
-
-      alert(errorMsg);
+      createTemplateFromCycleBills(cycleBills, name, description);
+      toast.success(`Template "${name}" saved successfully!`);
+    } catch (error) {
+      console.error('Error saving template:', error);
+      toast.error('Failed to save template');
     }
+  };
+
+  const handleLoadTemplate = (template: BillTemplate) => {
+    const loadedBills = template.bills.map(bill => ({
+      name: bill.name,
+      amount: bill.amount,
+      dueDate: bill.dueDate,
+      isRecurring: bill.isRecurring,
+      recurrenceDays: bill.recurrenceDays,
+      isEmergency: bill.isEmergency,
+      category: bill.category as BillCategory
+    }));
+
+    setBills(loadedBills);
+    setShowAddBills(true);
+    toast.success(`Loaded template "${template.name}" with ${template.bills.length} bills`);
   };
 
   const handleSubmitBills = async () => {
     if (bills.length === 0) {
-      alert("Please add at least one bill");
+      toast.error("Please add at least one bill");
       return;
     }
 
     for (const bill of bills) {
       if (!bill.name || !bill.amount || !bill.dueDate) {
-        alert("Please fill in all fields for each bill");
+        toast.error("Please fill in all fields for each bill");
         return;
       }
     }
+
+    setSubmittingBills(true);
 
     const cycleStartDate = new Date(Number(startDateTimestamp) * 1000);
     const cycleEndDate = new Date(Number(endDateTimestamp) * 1000);
@@ -763,7 +893,7 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
     if (totalAllocated > availableBalance) {
       const excess = ((totalAllocated - availableBalance) / 10_000_000).toFixed(2);
       const available = ((availableBalance - currentAllocated) / 10_000_000).toFixed(2);
-      alert(
+      toast.error(
         `Cannot add bills: Total allocation exceeds deposit!\n\n` +
         `Available balance: ${available} USDC\n` +
         `New bills would allocate: ${(newBillsAllocation / 10_000_000).toFixed(2)} USDC\n` +
@@ -856,28 +986,21 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
         },
       });
 
-      alert(`Successfully added ${bills.length} bill(s)!`);
+      toast.success(`Successfully added ${bills.length} bill(s)!`);
       setBills([]);
       setShowAddBills(false);
       loadCycleData();
       loadCycleBills();
     } catch (error) {
       console.error("Failed to add bills:", error);
-      alert(`Failed to add bills: ${error}`);
+      toast.error(`Failed to add bills: ${error}`);
+    } finally {
+      setSubmittingBills(false);
     }
   };
 
   if (loading) {
-    return (
-      <div style={{
-        backgroundColor: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-lg)',
-        padding: '24px'
-      }}>
-        <p style={{ color: 'var(--color-text-secondary)' }}>Loading...</p>
-      </div>
-    );
+    return <CycleCardSkeleton />;
   }
 
   if (!cycleData) {
@@ -1073,11 +1196,66 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
           {showBillsList ? "Hide Bills" : "Manage Bills"}
         </button>
         {cycleData.is_active && (
+          <>
+            <button
+              onClick={() => {
+                setShowAddBills(true);
+                if (bills.length === 0) addNewBillForm();
+              }}
+              style={{
+                background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-light))',
+                color: '#0f1419',
+                border: 'none',
+                padding: '10px 18px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'var(--transition-base)',
+                boxShadow: 'var(--shadow-glow)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <span>➕</span>
+              Add Bills
+            </button>
+            <button
+              onClick={() => setShowTemplateManager(true)}
+              style={{
+                background: 'transparent',
+                color: 'var(--color-text-primary)',
+                border: '1px solid var(--color-border)',
+                padding: '10px 18px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'var(--transition-base)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'var(--color-surface-hover)';
+                e.currentTarget.style.borderColor = 'var(--color-border-hover)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.borderColor = 'var(--color-border)';
+              }}
+            >
+              <span>📋</span>
+              Load Template
+            </button>
+          </>
+        )}
+        {cycleBills.length > 0 && (
           <button
-            onClick={() => {
-              setShowAddBills(true);
-              if (bills.length === 0) addNewBillForm();
-            }}
+            onClick={() => setShowSaveTemplate(true)}
             style={{
               background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-light))',
               color: '#0f1419',
@@ -1096,8 +1274,8 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
             onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
             onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
           >
-            <span>➕</span>
-            Add Bills
+            <span>💾</span>
+            Save as Template
           </button>
         )}
       </div>
@@ -1260,7 +1438,7 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
                         const dayOfMonth = selectedDate.getDate();
 
                         if (dayOfMonth < 1 || dayOfMonth > 28) {
-                          alert("Due date must be between day 1-28 of the month.\n\nThis ensures recurring bills work in all months including February (which has only 28 days).");
+                          toast.error("Due date must be between day 1-28 of the month.\n\nThis ensures recurring bills work in all months including February (which has only 28 days).");
                           return;
                         }
 
@@ -1321,26 +1499,35 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
             <button
               onClick={handleSubmitBills}
+              disabled={submittingBills}
               style={{
-                background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-light))',
-                color: '#0f1419',
+                background: submittingBills
+                  ? 'var(--color-border)'
+                  : 'linear-gradient(135deg, var(--color-primary), var(--color-primary-light))',
+                color: submittingBills ? 'var(--color-text-tertiary)' : '#0f1419',
                 border: 'none',
                 padding: '10px 20px',
                 borderRadius: 'var(--radius-md)',
                 fontSize: '14px',
                 fontWeight: 600,
-                cursor: 'pointer',
+                cursor: submittingBills ? 'not-allowed' : 'pointer',
                 transition: 'var(--transition-base)',
-                boxShadow: 'var(--shadow-glow)'
+                boxShadow: submittingBills ? 'none' : 'var(--shadow-glow)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                opacity: submittingBills ? 0.6 : 1
               }}
             >
-              Submit All Bills
+              {submittingBills ? <Spinner size={16} /> : null}
+              {submittingBills ? 'Submitting Bills...' : 'Submit All Bills'}
             </button>
             <button
               onClick={() => {
                 setShowAddBills(false);
                 setBills([]);
               }}
+              disabled={submittingBills}
               style={{
                 background: 'transparent',
                 color: 'var(--color-text-secondary)',
@@ -1349,8 +1536,9 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
                 borderRadius: 'var(--radius-md)',
                 fontSize: '14px',
                 fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'var(--transition-base)'
+                cursor: submittingBills ? 'not-allowed' : 'pointer',
+                transition: 'var(--transition-base)',
+                opacity: submittingBills ? 0.5 : 1
               }}
             >
               Cancel
@@ -1378,7 +1566,7 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {cycleBills.map((bill, index) => {
                 const amount = (Number(bill.amount) / 10_000_000).toFixed(2);
-                const dueDate = new Date(Number(bill.due_date) * 1000);
+                const dueDate = getActualDueDate(bill);
                 const isPaid = bill.is_paid;
                 const isRecurring = bill.is_recurring;
                 const isEmergency = bill.is_emergency;
@@ -1570,8 +1758,10 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
                   Due Date
                 </label>
                 <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                  {new Date(Number(selectedBill.due_date) * 1000).toLocaleDateString()} at{" "}
-                  {new Date(Number(selectedBill.due_date) * 1000).toLocaleTimeString()}
+                  {(() => {
+                    const actualDueDate = getActualDueDate(selectedBill);
+                    return `${actualDueDate.toLocaleDateString()} at ${actualDueDate.toLocaleTimeString()}`;
+                  })()}
                 </div>
               </div>
 
@@ -1712,65 +1902,71 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
                     <>
                       <button
                         onClick={() => handleSkipBill(selectedBill.id)}
+                        disabled={processingBillId === selectedBill.id}
                         style={{
                           background: 'transparent',
-                          color: 'var(--color-text-primary)',
-                          border: '1px solid var(--color-border)',
+                          color: processingBillId === selectedBill.id ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
+                          border: `1px solid ${processingBillId === selectedBill.id ? 'var(--color-border)' : 'var(--color-border)'}`,
                           padding: '10px 16px',
                           borderRadius: 'var(--radius-md)',
                           fontSize: '13px',
                           fontWeight: 600,
-                          cursor: 'pointer',
+                          cursor: processingBillId === selectedBill.id ? 'not-allowed' : 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '6px',
-                          transition: 'var(--transition-base)'
+                          transition: 'var(--transition-base)',
+                          opacity: processingBillId === selectedBill.id ? 0.6 : 1
                         }}
                       >
-                        <span>⏭️</span>
-                        Skip Next Occurrence
+                        {processingBillId === selectedBill.id ? <Spinner size={16} /> : <span>⏭️</span>}
+                        {processingBillId === selectedBill.id ? 'Processing...' : 'Skip Next Occurrence'}
                       </button>
                       <button
                         onClick={() => handleDeleteBill(selectedBill.id)}
+                        disabled={processingBillId === selectedBill.id}
                         style={{
-                          background: 'rgba(248, 113, 113, 0.15)',
-                          color: 'var(--color-error)',
-                          border: '1px solid var(--color-error)',
+                          background: processingBillId === selectedBill.id ? 'var(--color-bg-secondary)' : 'rgba(248, 113, 113, 0.15)',
+                          color: processingBillId === selectedBill.id ? 'var(--color-text-tertiary)' : 'var(--color-error)',
+                          border: `1px solid ${processingBillId === selectedBill.id ? 'var(--color-border)' : 'var(--color-error)'}`,
                           padding: '10px 16px',
                           borderRadius: 'var(--radius-md)',
                           fontSize: '13px',
                           fontWeight: 600,
-                          cursor: 'pointer',
+                          cursor: processingBillId === selectedBill.id ? 'not-allowed' : 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '6px',
-                          transition: 'var(--transition-base)'
+                          transition: 'var(--transition-base)',
+                          opacity: processingBillId === selectedBill.id ? 0.6 : 1
                         }}
                       >
-                        <span>🗑️</span>
-                        Delete Permanently
+                        {processingBillId === selectedBill.id ? <Spinner size={16} /> : <span>🗑️</span>}
+                        {processingBillId === selectedBill.id ? 'Deleting...' : 'Delete Permanently'}
                       </button>
                     </>
                   ) : (
                     <button
                       onClick={() => handleDeleteBill(selectedBill.id)}
+                      disabled={processingBillId === selectedBill.id}
                       style={{
-                        background: 'rgba(248, 113, 113, 0.15)',
-                        color: 'var(--color-error)',
-                        border: '1px solid var(--color-error)',
+                        background: processingBillId === selectedBill.id ? 'var(--color-bg-secondary)' : 'rgba(248, 113, 113, 0.15)',
+                        color: processingBillId === selectedBill.id ? 'var(--color-text-tertiary)' : 'var(--color-error)',
+                        border: `1px solid ${processingBillId === selectedBill.id ? 'var(--color-border)' : 'var(--color-error)'}`,
                         padding: '10px 16px',
                         borderRadius: 'var(--radius-md)',
                         fontSize: '13px',
                         fontWeight: 600,
-                        cursor: 'pointer',
+                        cursor: processingBillId === selectedBill.id ? 'not-allowed' : 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
-                        transition: 'var(--transition-base)'
+                        transition: 'var(--transition-base)',
+                        opacity: processingBillId === selectedBill.id ? 0.6 : 1
                       }}
                     >
-                      <span>🗑️</span>
-                      Delete Bill
+                      {processingBillId === selectedBill.id ? <Spinner size={16} /> : <span>🗑️</span>}
+                      {processingBillId === selectedBill.id ? 'Deleting...' : 'Delete Bill'}
                     </button>
                   )}
                 </>
@@ -1798,6 +1994,30 @@ function CycleCard({ cycleId }: { cycleId: bigint }) {
           </div>
         </div>
       )}
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        confirmButtonStyle={confirmModal.confirmButtonStyle}
+      />
+
+      {/* Save Template Modal */}
+      <SaveTemplateModal
+        isOpen={showSaveTemplate}
+        onClose={() => setShowSaveTemplate(false)}
+        onSave={handleSaveTemplate}
+      />
+
+      {/* Template Manager Modal */}
+      <TemplateManager
+        isOpen={showTemplateManager}
+        onClose={() => setShowTemplateManager(false)}
+        onLoadTemplate={handleLoadTemplate}
+      />
     </div>
   );
 }

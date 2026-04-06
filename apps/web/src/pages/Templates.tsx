@@ -1,23 +1,43 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useWallet } from '../hooks/useWallet';
-
-interface BillTemplate {
-  id: string;
-  name: string;
-  category: string;
-  bills: Array<{
-    name: string;
-    amount: string;
-    dueDay: number;
-    isRecurring: boolean;
-    category: string;
-  }>;
-  createdAt: Date;
-}
+import { useToast } from '../hooks/useToast';
+import { getTemplates, deleteTemplate, type BillTemplate } from '../util/templates';
 
 export default function Templates() {
   const { address } = useWallet();
-  const [templates] = useState<BillTemplate[]>([]);
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [templates, setTemplates] = useState<BillTemplate[]>([]);
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  const loadTemplates = () => {
+    const loadedTemplates = getTemplates();
+    console.log('Loaded templates:', loadedTemplates);
+    setTemplates(loadedTemplates);
+  };
+
+  const handleDeleteTemplate = (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete "${name}"?`)) {
+      const success = deleteTemplate(id);
+      if (success) {
+        toast.success('Template deleted successfully');
+        loadTemplates();
+      } else {
+        toast.error('Failed to delete template');
+      }
+    }
+  };
+
+  const handleUseTemplate = (template: BillTemplate) => {
+    // Save the template ID to localStorage so Dashboard can load it
+    localStorage.setItem('lockedin_pending_template', template.id);
+    toast.success(`Loading template "${template.name}"...`);
+    navigate('/');
+  };
 
   const getCategoryEmoji = (category: string) => {
     const emojiMap: Record<string, string> = {
@@ -59,37 +79,43 @@ export default function Templates() {
         </div>
       ) : (
         <>
-          {/* Create Template Button */}
-          <button
-            style={{
-              width: '100%',
-              padding: '16px',
-              backgroundColor: 'var(--color-surface)',
-              border: '2px dashed var(--color-border)',
-              borderRadius: 'var(--radius-lg)',
-              color: 'var(--color-text-secondary)',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'var(--transition-base)',
-              marginBottom: '24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-primary)';
-              e.currentTarget.style.color = 'var(--color-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-border)';
-              e.currentTarget.style.color = 'var(--color-text-secondary)';
-            }}
-          >
-            <span style={{ fontSize: '20px' }}>+</span>
-            Create New Template
-          </button>
+          {/* Info Banner */}
+          <div style={{
+            backgroundColor: 'rgba(0, 217, 179, 0.05)',
+            border: '1px solid rgba(0, 217, 179, 0.2)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '16px',
+            marginBottom: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <div style={{ fontSize: '20px' }}>💡</div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: '1.5' }}>
+                Go to the Dashboard, create a cycle with bills, and click "Save as Template" to create a reusable template.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/')}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: 'var(--color-primary)',
+                border: 'none',
+                borderRadius: 'var(--radius-md)',
+                color: '#0f1419',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'var(--transition-base)',
+                whiteSpace: 'nowrap'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+            >
+              Go to Dashboard
+            </button>
+          </div>
 
           {templates.length === 0 ? (
             <div style={{
@@ -131,7 +157,7 @@ export default function Templates() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '24px' }}>{getCategoryEmoji(template.category)}</span>
+                      <span style={{ fontSize: '24px' }}>📋</span>
                       <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                         {template.name}
                       </h3>
@@ -140,18 +166,26 @@ export default function Templates() {
                       style={{
                         background: 'none',
                         border: 'none',
-                        color: 'var(--color-text-tertiary)',
+                        color: '#ef4444',
                         cursor: 'pointer',
                         fontSize: '18px',
                         padding: '4px'
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
+                        handleDeleteTemplate(template.id, template.name);
                       }}
+                      title="Delete template"
                     >
-                      ⋮
+                      🗑️
                     </button>
                   </div>
+
+                  {template.description && (
+                    <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
+                      {template.description}
+                    </p>
+                  )}
 
                   <div style={{ marginBottom: '12px' }}>
                     <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
@@ -218,6 +252,7 @@ export default function Templates() {
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
+                        handleUseTemplate(template);
                       }}
                     >
                       Use Template

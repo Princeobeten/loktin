@@ -1,0 +1,359 @@
+{
+  "info": {
+    "name": "LockedIn API",
+    "description": "API endpoints for LockedIn: Bill management on Stellar",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Check API server status and uptime"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Verify Wallet Signature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Save the JWT token to environment variable",
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.token) {",
+                  "    pm.environment.set('authToken', jsonData.token);",
+                  "    pm.environment.set('userId', jsonData.user.id);",
+                  "    console.log('Token saved:', jsonData.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletAddress\": \"GDAROJ3YMABIJXRME7ZCKYTSQ4F3E7M4VIBIU5DJSTYQRRRBEGROMUZH\",\n  \"message\": \"Sign in to LockedIn\\nWallet: GDAROJ3YMABIJXRME7ZCKYTSQ4F3E7M4VIBIU5DJSTYQRRRBEGROMUZH\\nTimestamp: 1764289066622\",\n  \"signature\": \"ede8c194df95cf3549caf28f464ea39aa899ccd829aa07864dc959de11315c2e0adad99c50884675ad0b5b69af9bb7afef0a0bc9e5b6f2ec0ea28396c565c702\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "verify"]
+            },
+            "description": "Verify wallet signature and get JWT token. The token is automatically saved to environment variable 'authToken' for use in subsequent requests.\n\nNote: Use the test-auth.js script to generate a valid signature:\n```\nnode apps/api/test-auth.js\n```"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["profile"]
+            },
+            "description": "Get the authenticated user's profile"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"avatar\": \"https://example.com/avatar.png\",\n  \"emailOnPayment\": true,\n  \"emailOnDueSoon\": true,\n  \"emailMonthlySummary\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["profile"]
+            },
+            "description": "Update user profile information and notification preferences"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Templates",
+      "item": [
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/templates",
+              "host": ["{{baseUrl}}"],
+              "path": ["templates"]
+            },
+            "description": "Get all bill templates for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Template",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/templates/:templateId",
+              "host": ["{{baseUrl}}"],
+              "path": ["templates", ":templateId"],
+              "variable": [
+                {
+                  "key": "templateId",
+                  "value": "{{templateId}}",
+                  "description": "Template ID from List Templates response"
+                }
+              ]
+            },
+            "description": "Get a specific template by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Save the template ID to environment variable",
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.success && jsonData.template) {",
+                  "    pm.environment.set('templateId', jsonData.template.id);",
+                  "    console.log('Template ID saved:', jsonData.template.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Monthly Bills\",\n  \"description\": \"Standard recurring monthly expenses\",\n  \"bills\": [\n    {\n      \"name\": \"Netflix\",\n      \"category\": \"Subscriptions\",\n      \"amount\": \"1500\",\n      \"isRecurring\": true,\n      \"dayOfMonth\": 1\n    },\n    {\n      \"name\": \"Rent\",\n      \"category\": \"Housing\",\n      \"amount\": \"100000\",\n      \"isRecurring\": true,\n      \"dayOfMonth\": 1\n    },\n    {\n      \"name\": \"Electricity\",\n      \"category\": \"Utilities\",\n      \"amount\": \"8000\",\n      \"isRecurring\": true,\n      \"dayOfMonth\": 15\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/templates",
+              "host": ["{{baseUrl}}"],
+              "path": ["templates"]
+            },
+            "description": "Create a new bill template. Amounts are in USDC stroops (1 USDC = 10,000,000 stroops). The template ID is automatically saved for subsequent requests."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Template",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Monthly Bills\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/templates/:templateId",
+              "host": ["{{baseUrl}}"],
+              "path": ["templates", ":templateId"],
+              "variable": [
+                {
+                  "key": "templateId",
+                  "value": "{{templateId}}",
+                  "description": "Template ID from Create Template response"
+                }
+              ]
+            },
+            "description": "Update template metadata or bills. If 'bills' array is provided, it will replace all bills in the template."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Template",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/templates/:templateId",
+              "host": ["{{baseUrl}}"],
+              "path": ["templates", ":templateId"],
+              "variable": [
+                {
+                  "key": "templateId",
+                  "value": "{{templateId}}",
+                  "description": "Template ID to delete"
+                }
+              ]
+            },
+            "description": "Delete a template and all its bills"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Get Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics"]
+            },
+            "description": "Get cached analytics data for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Analytics",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CCUBYPV6KJWOXPXGKKTG4DUKUW576S2CN7ABHW6BEDAYJWQ4IHRGJP2Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/analytics/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "refresh"]
+            },
+            "description": "Refresh analytics by fetching latest data from the blockchain. Currently returns placeholder data - will be implemented to query the smart contract."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001/api",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "templateId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

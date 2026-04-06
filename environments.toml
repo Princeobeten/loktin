@@ -83,7 +83,7 @@ default = true
 [staging.contracts]
 # LockedIn deployed to testnet
 [staging.contracts.lockedin]
-id = "CCUBYPV6KJWOXPXGKKTG4DUKUW576S2CN7ABHW6BEDAYJWQ4IHRGJP2Z"
+id = "CAKZLTBWAXVINW4HZOXCHEZDLE2AUSQH4LW2U7LRWZUQ6BBECZSUYZ63"
 client = true
 
 ### Production environment configuration

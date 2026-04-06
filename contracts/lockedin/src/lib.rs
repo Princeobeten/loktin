@@ -59,6 +59,7 @@ impl LockedIn {
     // Admin functions
 
     pub fn admin(env: Env) -> Result<Address, Error> {
+        Self::extend_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&DataKey::Admin)
@@ -71,6 +72,7 @@ impl LockedIn {
         new_admin: Address,
         live_until_ledger: u32,
     ) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
 
         // Check if there's already a pending transfer that hasn't expired
@@ -102,6 +104,7 @@ impl LockedIn {
 
     // Accept admin transfer (step 2 of 2-step transfer)
     pub fn accept_admin(env: Env) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         let new_admin: Address = env
             .storage()
             .instance()
@@ -134,6 +137,7 @@ impl LockedIn {
 
     // Cancel a pending admin transfer
     pub fn cancel_admin_transfer(env: Env) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
 
         if !env
@@ -151,6 +155,7 @@ impl LockedIn {
     }
 
     pub fn set_fee_recipient(env: Env, recipient: Address) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
 
         env.storage()
@@ -166,6 +171,7 @@ impl LockedIn {
     }
 
     pub fn fee_recipient(env: &Env) -> Result<Address, Error> {
+        Self::extend_instance_ttl(env);
         env.storage()
             .instance()
             .get(&DataKey::FeeRecipient)
@@ -173,6 +179,7 @@ impl LockedIn {
     }
 
     pub fn set_usdc_token(env: Env, usdc_token: Address) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
 
         env.storage()
@@ -184,6 +191,7 @@ impl LockedIn {
 
     // Get USDC token address (consolidated getter)
     pub fn usdc_token(env: &Env) -> Result<Address, Error> {
+        Self::extend_instance_ttl(env);
         env.storage()
             .instance()
             .get(&DataKey::UsdcToken)
@@ -191,6 +199,7 @@ impl LockedIn {
     }
 
     pub fn set_fee_percentage(env: Env, fee_percentage: u32) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
 
         Self::validate_fee_percentage(fee_percentage)?;
@@ -204,6 +213,7 @@ impl LockedIn {
 
     // Fee percentage in basis points (e.g., 200 = 2.00%)
     pub fn fee_percentage(env: &Env) -> Result<u32, Error> {
+        Self::extend_instance_ttl(env);
         env.storage()
             .instance()
             .get(&DataKey::FeePercentage)
@@ -218,6 +228,7 @@ impl LockedIn {
         duration_months: u32,
         amount: i128,
     ) -> Result<u64, Error> {
+        Self::extend_instance_ttl(&env);
         user.require_auth();
 
         if duration_months < 1 || duration_months > 12 {
@@ -305,6 +316,7 @@ impl LockedIn {
     }
 
     pub fn get_cycle(env: Env, cycle_id: u64) -> Result<BillCycle, Error> {
+        Self::extend_instance_ttl(&env);
         let cycle_key = DataKey::Cycle(cycle_id);
         let cycle: BillCycle = env
             .storage()
@@ -319,6 +331,7 @@ impl LockedIn {
     }
 
     pub fn get_user_cycles(env: Env, user: Address) -> Vec<u64> {
+        Self::extend_instance_ttl(&env);
         user.require_auth();
 
         let user_cycles_key = DataKey::UserCycles(user);
@@ -331,6 +344,7 @@ impl LockedIn {
 
     // Admin-only
     pub fn get_all_cycles(env: Env) -> Result<Vec<u64>, Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
 
         let all_cycles_key = DataKey::AllCycles;
@@ -348,6 +362,7 @@ impl LockedIn {
 
     /// Anyone can end a cycle after the end_date has passed
     pub fn end_cycle(env: Env, cycle_id: u64) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         let _guard = ReentrancyGuard::new(&env)?;
 
         let cycle_key = DataKey::Cycle(cycle_id);
@@ -368,6 +383,7 @@ impl LockedIn {
 
     /// Admin can end a cycle at any time
     pub fn admin_end_cycle(env: Env, cycle_id: u64) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
         let _guard = ReentrancyGuard::new(&env)?;
 
@@ -388,6 +404,7 @@ impl LockedIn {
         cycle_id: u64,
         bills: Vec<(String, i128, u64, bool, Vec<u32>, BillCategory)>,
     ) -> Result<Vec<u64>, Error> {
+        Self::extend_instance_ttl(&env);
         let cycle_key = DataKey::Cycle(cycle_id);
         let cycle: BillCycle = env
             .storage()
@@ -465,6 +482,7 @@ impl LockedIn {
     }
 
     pub fn get_bill(env: Env, bill_id: u64) -> Result<Bill, Error> {
+        Self::extend_instance_ttl(&env);
         let bill_key = DataKey::Bill(bill_id);
         let bill: Bill = env
             .storage()
@@ -486,6 +504,7 @@ impl LockedIn {
     }
 
     pub fn get_cycle_bills(env: Env, cycle_id: u64) -> Vec<u64> {
+        Self::extend_instance_ttl(&env);
         let cycle_key = DataKey::Cycle(cycle_id);
         if let Some(cycle) = env.storage().persistent().get::<DataKey, BillCycle>(&cycle_key) {
             cycle.user.require_auth();
@@ -503,6 +522,7 @@ impl LockedIn {
     // Sends funds back to user's wallet
     // User can call ONLY on exact due date (same calendar day)
     pub fn pay_bill(env: Env, bill_id: u64) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         let _guard = ReentrancyGuard::new(&env)?;
 
         let bill_key = DataKey::Bill(bill_id);
@@ -582,6 +602,7 @@ impl LockedIn {
 
 
     pub fn admin_pay_bill(env: Env, bill_id: u64) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         Self::require_admin(&env)?;
         let _guard = ReentrancyGuard::new(&env)?;
 
@@ -657,6 +678,7 @@ impl LockedIn {
     // For non-recurring bills it deletes the bill entirely
     /// Skip the current month's payment for a recurring bill
     pub fn skip_bill(env: Env, bill_id: u64) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         let bill_key = DataKey::Bill(bill_id);
         let mut bill: Bill = env
             .storage()
@@ -721,6 +743,7 @@ impl LockedIn {
 
     /// Delete a bill completely (all future occurrences)
     pub fn delete_bill(env: Env, bill_id: u64) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         let bill_key = DataKey::Bill(bill_id);
         let bill: Bill = env
             .storage()
@@ -776,6 +799,14 @@ impl LockedIn {
     // Helper Functions
 
     // Extend TTL for storage entries
+
+    // Extend TTL for instance storage to prevent archival
+    fn extend_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_TTL_THRESHOLD, LEDGER_TTL_EXTEND);
+    }
+
     fn extend_ttl(env: &Env, key: &DataKey) {
         env.storage()
             .persistent()
@@ -1005,6 +1036,7 @@ impl LockedIn {
 
     /// Skip the current month's payment for multiple bills
     pub fn skip_bills(env: Env, bill_ids: Vec<u64>) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         if bill_ids.is_empty() {
             return Err(Error::InvalidBillAmount);
         }
@@ -1110,6 +1142,7 @@ impl LockedIn {
 
     /// Delete multiple bills completely (all future occurrences)
     pub fn delete_bills(env: Env, bill_ids: Vec<u64>) -> Result<(), Error> {
+        Self::extend_instance_ttl(&env);
         if bill_ids.is_empty() {
             return Err(Error::InvalidBillAmount);
         }

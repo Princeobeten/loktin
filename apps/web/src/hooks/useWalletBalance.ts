@@ -12,6 +12,7 @@ const checkFunding = (balances: Balance[]) =>
 type WalletBalance = {
   balances: Balance[];
   xlm: string;
+  usdc: string;
   isFunded: boolean;
   isLoading: boolean;
   error: Error | null;
@@ -22,6 +23,7 @@ export const useWalletBalance = () => {
   const [state, setState] = useState<WalletBalance>({
     balances: [],
     xlm: "-",
+    usdc: "-",
     isFunded: false,
     isLoading: false,
     error: null,
@@ -34,10 +36,16 @@ export const useWalletBalance = () => {
       const balances = await fetchBalance(address);
       const isFunded = checkFunding(balances);
       const native = balances.find(({ asset_type }) => asset_type === "native");
+      const usdc = balances.find((bal) =>
+        bal.asset_type !== "native" &&
+        bal.asset_type !== "liquidity_pool_shares" &&
+        bal.asset_code === "USDC"
+      );
       setState({
         isLoading: false,
         balances,
         xlm: native?.balance ? formatter.format(Number(native.balance)) : "-",
+        usdc: usdc?.balance ? formatter.format(Number(usdc.balance)) : "0",
         isFunded,
         error: null,
       });
@@ -47,6 +55,7 @@ export const useWalletBalance = () => {
           isLoading: false,
           balances: [],
           xlm: "-",
+          usdc: "-",
           isFunded: false,
           error: new Error("Error fetching balance. Is your wallet funded?"),
         });
@@ -56,6 +65,7 @@ export const useWalletBalance = () => {
           isLoading: false,
           balances: [],
           xlm: "-",
+          usdc: "-",
           isFunded: false,
           error: new Error("Unknown error fetching balance."),
         });
